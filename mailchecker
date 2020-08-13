@@ -1,0 +1,77 @@
+#!/bin/sh
+
+FROMMAIL=""
+
+echo2(){
+	echo "$@" 1>&2;
+}
+
+getMailExchanger(){
+	grep "mail exchanger" | head -1 | cut -d' ' -f 5
+}
+
+sendTelnetCheckCommands(){
+	sleep 3
+	echo "HELO $1"
+	sleep 3
+	echo "MAIL FROM:<$FROMMAIL>"
+	sleep 3
+	echo "RCPT TO:<$2>"
+	sleep 3
+	echo "quit"
+}
+
+processTelnetOutput(){
+	STATUS="TRUE"
+	read trash
+	read trash
+	read trash
+	while read RESPONSE; do 
+		RESPONSECODE=$(echo "$RESPONSE" | cut -d' ' -f1)
+		case "$RESPONSECODE" in
+			5*)
+				STATUS="FALSE"
+				;;
+		esac
+	done
+	echo "$STATUS"
+}
+
+checkMail(){
+	echo2 "============================================"
+	echo2 "CHECKING MAIL: $1"
+	echo2 "============================================"
+	echo2 ""
+	DOMAIN="${1#*@}"
+	echo2 "THE DOMAIN IS: $DOMAIN"
+	echo2 ""
+	MEXCHANGER=$(nslookup -type=mx "$DOMAIN" | getMailExchanger)
+	if [ -n "$MEXCHANGER" ]; then
+		echo2 "THE MAIL EXCHANGER IS: $MEXCHANGER"
+		echo2 ""
+		echo2 "TALKING WITH SERVER"
+		echo2 ""
+		STATUS=$(sendTelnetCheckCommands "$DOMAIN" "$1" |\
+			telnet "$MEXCHANGER" 25 |\
+			tee /dev/stderr |\
+			processTelnetOutput)
+		echo "$1 $STATUS"
+	else
+		echo "$1 FALSE"
+	fi
+}
+
+readMailsFromInput(){
+	while read MAIL; do 
+		checkMail "$MAIL"
+	done
+}
+
+if [ -n "$1" ]; then
+	FROMMAIL="$1"
+	readMailsFromInput
+else
+	echo2 "USAGE: $0 <FROM MAIL>"
+	exit 1
+fi
+
